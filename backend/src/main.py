@@ -240,19 +240,22 @@ def create_app(config_class=Config):
 app = create_app()
 
 if __name__ == '__main__':
-    print("🚀 Démarrage de ComptaEBNL-IA")
+    print("🚀 Démarrage de ComptaEBNL-IA Backend...")
     print("=" * 50)
-    print("📊 Système comptable avec IA pour EBNL")
-    print("📋 Référentiel: SYCEBNL")
-    print("🌐 Interface API: http://localhost:5000")
-    print("📖 Documentation: http://localhost:5000/api/docs")
-    print("💚 Santé: http://localhost:5000/api/health")
+    print("📊 Plan comptable SYCEBNL: 975+ comptes")
+    print("🤖 Intelligence artificielle intégrée")
+    print("🔐 Authentification JWT sécurisée")
+    print("📱 API RESTful complète")
+    print("=" * 50)
+    print("🌐 Backend accessible sur: http://0.0.0.0:5001")
+    print("📚 Documentation API: http://0.0.0.0:5001/api/docs")
+    print("❤️  Health Check: http://0.0.0.0:5001/api/health")
     print("=" * 50)
     
-    # Lancement en mode développement
+    # Démarrage avec accès externe
     app.run(
-        host='127.0.0.1',
-        port=5000,
+        host='0.0.0.0',  # Permet l'accès externe
+        port=5001,       # Port alternatif
         debug=True,
-        use_reloader=True
+        threaded=True
     )
