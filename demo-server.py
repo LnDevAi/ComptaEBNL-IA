@@ -202,14 +202,14 @@ DEMO_TEMPLATE = """
                 <strong>Application Principale:</strong><br>
                 <a href="http://localhost:3001" target="_blank">http://localhost:3001</a>
             </div>
-            <div class="api-endpoint">
-                <strong>API Health Check:</strong><br>
-                <a href="/api/health" target="_blank">http://localhost:8080/api/health</a>
-            </div>
-            <div class="api-endpoint">
-                <strong>Plan Comptable SYCEBNL:</strong><br>
-                <a href="/api/v1/plan-comptable/stats" target="_blank">http://localhost:8080/api/v1/plan-comptable/stats</a>
-            </div>
+                         <div class="api-endpoint">
+                 <strong>API Health Check:</strong><br>
+                 <a href="/api/health" target="_blank">http://localhost:9000/api/health</a>
+             </div>
+             <div class="api-endpoint">
+                 <strong>Plan Comptable SYCEBNL:</strong><br>
+                 <a href="/api/v1/plan-comptable/stats" target="_blank">http://localhost:9000/api/v1/plan-comptable/stats</a>
+             </div>
         </div>
 
         <div class="card">
@@ -327,20 +327,20 @@ def status():
         "platform": "ComptaEBNL-IA",
         "backend": "✅ Opérationnel" if backend_ok else "❌ Non accessible",
         "frontend": "✅ Opérationnel" if frontend_ok else "❌ Non accessible",
-        "demo_url": "http://localhost:8080",
+                 "demo_url": "http://localhost:9000",
         "app_url": "http://localhost:3001" if frontend_ok else "Non disponible"
     })
 
 if __name__ == '__main__':
     print("🌐 SERVEUR DE DÉMONSTRATION COMPTAEBNL-IA")
     print("=" * 50)
-    print("🎯 Page de démonstration: http://localhost:8080")
-    print("🔧 Proxy API: http://localhost:8080/api/...")
-    print("📊 Status: http://localhost:8080/status")
+    print("🎯 Page de démonstration: http://localhost:9000")
+    print("🔧 Proxy API: http://localhost:9000/api/...")
+    print("📊 Status: http://localhost:9000/status")
     print("=" * 50)
     
     app.run(
         host='0.0.0.0',
-        port=8080,
+        port=9000,
         debug=False
     )
