@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # Backend Flask API
+  comptaebnl-backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: comptaebnl-backend
+    environment:
+      - FLASK_ENV=production
+      - DATABASE_URL=sqlite:///comptaebnl.db
+      - JWT_SECRET_KEY=comptaebnl-2024-secure-key
+      - CORS_ORIGINS=*
+    ports:
+      - "5001:5001"
+    volumes:
+      - backend_data:/app/data
+      - backend_uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend React
+  comptaebnl-frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_API_URL=https://your-domain.com
+    container_name: comptaebnl-frontend
+    ports:
+      - "3001:80"
+    depends_on:
+      - comptaebnl-backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Serveur de démonstration
+  comptaebnl-demo:
+    build:
+      context: ../
+      dockerfile: aws-deploy/Dockerfile.demo
+    container_name: comptaebnl-demo
+    ports:
+      - "9000:9000"
+    depends_on:
+      - comptaebnl-backend
+      - comptaebnl-frontend
+    restart: unless-stopped
+    environment:
+      - BACKEND_URL=http://comptaebnl-backend:5001
+      - FRONTEND_URL=http://comptaebnl-frontend:80
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: comptaebnl-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - comptaebnl-backend
+      - comptaebnl-frontend
+      - comptaebnl-demo
+    restart: unless-stopped
+
+volumes:
+  backend_data:
+  backend_uploads:

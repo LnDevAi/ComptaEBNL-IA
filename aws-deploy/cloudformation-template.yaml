@@ -1,0 +1,289 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ComptaEBNL-IA - Plateforme de comptabilité EBNL avec IA sur AWS'
+
+Parameters:
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Nom de la paire de clés EC2 pour accès SSH
+    
+  DomainName:
+    Type: String
+    Description: Nom de domaine pour l'application (optionnel)
+    Default: ""
+
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.micro, t3.small, t3.medium, t3.large]
+    Description: Type d'instance EC2
+
+Resources:
+  # VPC et réseau
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: ComptaEBNL-VPC
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: ComptaEBNL-IGW
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: ComptaEBNL-Public-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: ComptaEBNL-Public-2
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: ComptaEBNL-RT
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref RouteTable
+
+  SubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref RouteTable
+
+  # Security Groups
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group pour ComptaEBNL-IA
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3001
+          ToPort: 3001
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 5001
+          ToPort: 5001
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 9000
+          ToPort: 9000
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: ComptaEBNL-SG
+
+  # Application Load Balancer
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: ComptaEBNL-ALB
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref WebSecurityGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: ComptaEBNL-TG
+      Port: 9000
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      HealthCheckPath: /status
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  # Instance EC2
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0c02fb55956c7d316  # Amazon Linux 2 AMI
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !Ref WebSecurityGroup
+      SubnetId: !Ref PublicSubnet1
+      IamInstanceProfile: !Ref InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y docker git
+          systemctl start docker
+          systemctl enable docker
+          usermod -a -G docker ec2-user
+          
+          # Installation de Docker Compose
+          curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+          
+          # Clone du repository
+          cd /home/ec2-user
+          git clone https://github.com/LnDevAi/ComptaEBNL-IA.git
+          cd ComptaEBNL-IA
+          
+          # Configuration pour production
+          sed -i 's/your-domain.com/${ApplicationLoadBalancer.DNSName}/g' aws-deploy/docker-compose.yml
+          
+          # Démarrage des services
+          cd aws-deploy
+          docker-compose up -d
+          
+          # Configuration du démarrage automatique
+          echo "cd /home/ec2-user/ComptaEBNL-IA/aws-deploy && docker-compose up -d" >> /etc/rc.local
+          chmod +x /etc/rc.local
+      Tags:
+        - Key: Name
+          Value: ComptaEBNL-Instance
+
+  # IAM Role pour EC2
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ComptaEBNLPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  # Auto Scaling Group (optionnel)
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: ComptaEBNL-LT
+      LaunchTemplateData:
+        ImageId: ami-0c02fb55956c7d316
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyPairName
+        SecurityGroupIds:
+          - !Ref WebSecurityGroup
+        IamInstanceProfile:
+          Arn: !GetAtt InstanceProfile.Arn
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install -y docker git
+            systemctl start docker
+            systemctl enable docker
+            usermod -a -G docker ec2-user
+            
+            curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+            chmod +x /usr/local/bin/docker-compose
+            
+            cd /home/ec2-user
+            git clone https://github.com/LnDevAi/ComptaEBNL-IA.git
+            cd ComptaEBNL-IA/aws-deploy
+            docker-compose up -d
+
+Outputs:
+  LoadBalancerDNS:
+    Description: DNS du Load Balancer pour accéder à ComptaEBNL-IA
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: ComptaEBNL-LoadBalancer-DNS
+
+  ApplicationURL:
+    Description: URL complète de l'application ComptaEBNL-IA
+    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
+
+  InstancePublicIP:
+    Description: Adresse IP publique de l'instance EC2
+    Value: !GetAtt EC2Instance.PublicIp
+
+  SSHCommand:
+    Description: Commande SSH pour se connecter à l'instance
+    Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${EC2Instance.PublicIp}'

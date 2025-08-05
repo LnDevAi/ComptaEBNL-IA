@@ -1,0 +1,27 @@
+# ComptaEBNL-IA Backend Dependencies
+# Framework Flask et extensions
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-CORS==4.0.0
+Flask-Migrate==4.0.5
+
+# Base de données
+SQLAlchemy==2.0.23
+
+# Authentification et sécurité
+PyJWT==2.8.0
+Werkzeug==3.0.1
+
+# Traitement de documents
+PyPDF2==3.0.1
+
+# Utilitaires
+python-dateutil==2.8.2
+requests==2.31.0
+
+# Traitement de données
+pandas==2.1.3
+numpy==1.25.2
+
+# Production
+gunicorn==21.2.0
