@@ -416,6 +416,275 @@ def init_default_data():
     
     db.session.commit()
 
+# ============================
+# SYSTÈME D'ABONNEMENT SAAS
+# ============================
+
+class TypePlan(enum.Enum):
+    GRATUIT = "gratuit"
+    PROFESSIONNEL = "professionnel" 
+    ENTERPRISE = "enterprise"
+
+class StatutAbonnement(enum.Enum):
+    ACTIF = "actif"
+    EXPIRE = "expire"
+    SUSPENDU = "suspendu"
+    ANNULE = "annule"
+    EN_ATTENTE = "en_attente"
+
+class MethodePaiement(enum.Enum):
+    STRIPE = "stripe"
+    PAYPAL = "paypal"
+    MTN_MOBILE_MONEY = "mtn_mobile_money"
+    ORANGE_MONEY = "orange_money"
+    WAVE = "wave"
+    MOOV_MONEY = "moov_money"
+    AIRTEL_MONEY = "airtel_money"
+
+class StatutPaiement(enum.Enum):
+    EN_ATTENTE = "en_attente"
+    REUSSI = "reussi"
+    ECHOUE = "echoue"
+    REMBOURSE = "rembourse"
+    ANNULE = "annule"
+
+class PlanAbonnement(db.Model):
+    """Plans d'abonnement disponibles"""
+    __tablename__ = 'plans_abonnement'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    nom = db.Column(db.String(100), nullable=False)
+    type_plan = db.Column(db.Enum(TypePlan), nullable=False)
+    prix_mensuel = db.Column(db.Numeric(10, 2), nullable=False)
+    prix_annuel = db.Column(db.Numeric(10, 2), nullable=True)
+    devise = db.Column(db.String(3), default='EUR')
+    
+    # Limitations du plan
+    max_entites = db.Column(db.Integer, default=1)
+    max_ecritures_mois = db.Column(db.Integer, default=100)
+    max_utilisateurs = db.Column(db.Integer, default=1)
+    max_documents_mois = db.Column(db.Integer, default=50)
+    
+    # Fonctionnalités incluses
+    ia_avancee = db.Column(db.Boolean, default=False)
+    ocr_documents = db.Column(db.Boolean, default=False)
+    etats_financiers_avances = db.Column(db.Boolean, default=False)
+    rapprochement_bancaire = db.Column(db.Boolean, default=False)
+    audit_trail = db.Column(db.Boolean, default=False)
+    support_prioritaire = db.Column(db.Boolean, default=False)
+    api_access = db.Column(db.Boolean, default=False)
+    
+    description = db.Column(db.Text)
+    actif = db.Column(db.Boolean, default=True)
+    date_creation = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relations
+    abonnements = db.relationship('Abonnement', backref='plan', lazy=True)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'nom': self.nom,
+            'type_plan': self.type_plan.value,
+            'prix_mensuel': float(self.prix_mensuel),
+            'prix_annuel': float(self.prix_annuel) if self.prix_annuel else None,
+            'devise': self.devise,
+            'limitations': {
+                'max_entites': self.max_entites,
+                'max_ecritures_mois': self.max_ecritures_mois,
+                'max_utilisateurs': self.max_utilisateurs,
+                'max_documents_mois': self.max_documents_mois
+            },
+            'fonctionnalites': {
+                'ia_avancee': self.ia_avancee,
+                'ocr_documents': self.ocr_documents,
+                'etats_financiers_avances': self.etats_financiers_avances,
+                'rapprochement_bancaire': self.rapprochement_bancaire,
+                'audit_trail': self.audit_trail,
+                'support_prioritaire': self.support_prioritaire,
+                'api_access': self.api_access
+            },
+            'description': self.description
+        }
+
+class Abonnement(db.Model):
+    """Abonnements des utilisateurs"""
+    __tablename__ = 'abonnements'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    utilisateur_id = db.Column(db.Integer, db.ForeignKey('utilisateurs.id'), nullable=False)
+    plan_id = db.Column(db.Integer, db.ForeignKey('plans_abonnement.id'), nullable=False)
+    
+    statut = db.Column(db.Enum(StatutAbonnement), default=StatutAbonnement.EN_ATTENTE)
+    date_debut = db.Column(db.DateTime, nullable=False)
+    date_fin = db.Column(db.DateTime, nullable=False)
+    date_creation = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Facturation
+    periode_facturation = db.Column(db.String(20), default='mensuel')  # mensuel, annuel
+    montant = db.Column(db.Numeric(10, 2), nullable=False)
+    devise = db.Column(db.String(3), default='EUR')
+    
+    # Intégrations paiement
+    stripe_subscription_id = db.Column(db.String(255))
+    paypal_subscription_id = db.Column(db.String(255))
+    
+    # Statistiques d'utilisation
+    ecritures_utilisees_mois = db.Column(db.Integer, default=0)
+    documents_utilises_mois = db.Column(db.Integer, default=0)
+    derniere_activite = db.Column(db.DateTime)
+    
+    # Relations
+    paiements = db.relationship('Paiement', backref='abonnement', lazy=True)
+    
+    def est_actif(self):
+        """Vérifie si l'abonnement est actif"""
+        return (self.statut == StatutAbonnement.ACTIF and 
+                self.date_fin > datetime.utcnow())
+    
+    def jours_restants(self):
+        """Nombre de jours restants"""
+        if self.date_fin > datetime.utcnow():
+            return (self.date_fin - datetime.utcnow()).days
+        return 0
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'utilisateur_id': self.utilisateur_id,
+            'plan': self.plan.to_dict() if self.plan else None,
+            'statut': self.statut.value,
+            'date_debut': self.date_debut.isoformat(),
+            'date_fin': self.date_fin.isoformat(),
+            'periode_facturation': self.periode_facturation,
+            'montant': float(self.montant),
+            'devise': self.devise,
+            'est_actif': self.est_actif(),
+            'jours_restants': self.jours_restants(),
+            'utilisation': {
+                'ecritures_mois': self.ecritures_utilisees_mois,
+                'documents_mois': self.documents_utilises_mois
+            }
+        }
+
+class Paiement(db.Model):
+    """Historique des paiements"""
+    __tablename__ = 'paiements'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    abonnement_id = db.Column(db.Integer, db.ForeignKey('abonnements.id'), nullable=False)
+    utilisateur_id = db.Column(db.Integer, db.ForeignKey('utilisateurs.id'), nullable=False)
+    
+    montant = db.Column(db.Numeric(10, 2), nullable=False)
+    devise = db.Column(db.String(3), default='EUR')
+    methode_paiement = db.Column(db.Enum(MethodePaiement), nullable=False)
+    statut = db.Column(db.Enum(StatutPaiement), default=StatutPaiement.EN_ATTENTE)
+    
+    # Identifiants externes
+    transaction_id_externe = db.Column(db.String(255))
+    stripe_payment_intent_id = db.Column(db.String(255))
+    paypal_order_id = db.Column(db.String(255))
+    mobile_money_transaction_id = db.Column(db.String(255))
+    
+    # Détails Mobile Money
+    numero_telephone = db.Column(db.String(20))  # Pour Mobile Money
+    operateur_mobile = db.Column(db.String(50))  # MTN, Orange, Wave, etc.
+    
+    # Métadonnées
+    ip_address = db.Column(db.String(45))
+    user_agent = db.Column(db.Text)
+    date_creation = db.Column(db.DateTime, default=datetime.utcnow)
+    date_traitement = db.Column(db.DateTime)
+    
+    # Messages d'erreur
+    message_erreur = db.Column(db.Text)
+    code_erreur = db.Column(db.String(50))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'montant': float(self.montant),
+            'devise': self.devise,
+            'methode_paiement': self.methode_paiement.value,
+            'statut': self.statut.value,
+            'transaction_id': self.transaction_id_externe,
+            'numero_telephone': self.numero_telephone,
+            'operateur_mobile': self.operateur_mobile,
+            'date_creation': self.date_creation.isoformat(),
+            'date_traitement': self.date_traitement.isoformat() if self.date_traitement else None
+        }
+
+class UtilisationQuota(db.Model):
+    """Suivi de l'utilisation des quotas par abonnement"""
+    __tablename__ = 'utilisation_quotas'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    abonnement_id = db.Column(db.Integer, db.ForeignKey('abonnements.id'), nullable=False)
+    
+    # Période de suivi
+    annee = db.Column(db.Integer, nullable=False)
+    mois = db.Column(db.Integer, nullable=False)
+    
+    # Compteurs d'utilisation
+    ecritures_utilisees = db.Column(db.Integer, default=0)
+    documents_traites = db.Column(db.Integer, default=0)
+    appels_api = db.Column(db.Integer, default=0)
+    stockage_utilise_mb = db.Column(db.Integer, default=0)
+    
+    date_creation = db.Column(db.DateTime, default=datetime.utcnow)
+    date_maj = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Contrainte unique par abonnement/mois
+    __table_args__ = (db.UniqueConstraint('abonnement_id', 'annee', 'mois'),)
+
+class CouponReduction(db.Model):
+    """Coupons de réduction et codes promos"""
+    __tablename__ = 'coupons_reduction'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(50), unique=True, nullable=False)
+    description = db.Column(db.Text)
+    
+    # Type de réduction
+    type_reduction = db.Column(db.String(20), nullable=False)  # pourcentage, montant_fixe
+    valeur_reduction = db.Column(db.Numeric(10, 2), nullable=False)
+    
+    # Conditions d'utilisation
+    montant_minimum = db.Column(db.Numeric(10, 2), default=0)
+    utilisations_max = db.Column(db.Integer)
+    utilisations_actuelles = db.Column(db.Integer, default=0)
+    
+    # Validité
+    date_debut = db.Column(db.DateTime, nullable=False)
+    date_fin = db.Column(db.DateTime, nullable=False)
+    actif = db.Column(db.Boolean, default=True)
+    
+    # Plans concernés (NULL = tous les plans)
+    plans_eligibles = db.Column(db.Text)  # JSON des IDs de plans
+    
+    date_creation = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def est_valide(self, montant=0):
+        """Vérifie si le coupon est valide"""
+        now = datetime.utcnow()
+        return (self.actif and 
+                self.date_debut <= now <= self.date_fin and
+                montant >= self.montant_minimum and
+                (self.utilisations_max is None or 
+                 self.utilisations_actuelles < self.utilisations_max))
+    
+    def calculer_reduction(self, montant):
+        """Calcule le montant de la réduction"""
+        if not self.est_valide(montant):
+            return 0
+        
+        if self.type_reduction == 'pourcentage':
+            return montant * (self.valeur_reduction / 100)
+        elif self.type_reduction == 'montant_fixe':
+            return min(self.valeur_reduction, montant)
+        
+        return 0
+
 if __name__ == '__main__':
     # Test des modèles
     print("Modèles ComptaEBNL-IA définis avec succès !")

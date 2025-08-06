@@ -18,6 +18,13 @@ import Entites from './pages/Entites/Entites';
 import Notifications from './pages/Notifications/Notifications';
 import Audit from './pages/Audit/Audit';
 import Login from './pages/Auth/Login';
+import Register from './pages/Auth/Register'; // Added Register component
+import Pricing from './pages/Pricing/Pricing'; // Added Pricing component
+import BillingDashboard from './pages/Billing/BillingDashboard'; // Added BillingDashboard component
+import EcrituresPage from './pages/Ecritures/EcrituresPage'; // Added EcrituresPage component
+import EntitesPage from './pages/Entites/EntitesPage'; // Added EntitesPage component
+import DocumentsPage from './pages/Documents/DocumentsPage'; // Added DocumentsPage component
+import ReportsPage from './pages/Reports/ReportsPage'; // Added ReportsPage component
 
 // Context
 import { AuthProvider } from './context/AuthContext';
@@ -146,6 +153,8 @@ const App: React.FC = () => {
               <Routes>
                 {/* Route de connexion */}
                 <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
+                <Route path="/pricing" element={<Pricing />} />
                 
                 {/* Routes protégées */}
                 <Route
@@ -155,23 +164,28 @@ const App: React.FC = () => {
                       <Layout>
                         <Routes>
                           {/* Tableau de bord principal */}
-                          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                          <Route index element={<Dashboard />} />
                           <Route path="/dashboard" element={<Dashboard />} />
                           
                           {/* Comptabilité */}
                           <Route path="/plan-comptable" element={<PlanComptable />} />
                           <Route path="/ecritures" element={<Ecritures />} />
+                          <Route path="/ecritures-page" element={<EcrituresPage />} /> {/* Added EcrituresPage route */}
                           <Route path="/etats-financiers" element={<EtatsFinanciers />} />
                           <Route path="/exercices" element={<Exercices />} />
                           
                           {/* Analyses et rapports */}
                           <Route path="/analytics" element={<Analytics />} />
                           <Route path="/rapprochement" element={<Rapprochement />} />
+                          <Route path="reports" element={<ReportsPage />} /> {/* Added ReportsPage route */}
                           
                           {/* Gestion */}
                           <Route path="/entites" element={<Entites />} />
+                          <Route path="/entites-page" element={<EntitesPage />} /> {/* Added EntitesPage route */}
                           <Route path="/notifications" element={<Notifications />} />
                           <Route path="/audit" element={<Audit />} />
+                          <Route path="billing" element={<BillingDashboard />} /> {/* Added BillingDashboard route */}
+                          <Route path="documents" element={<DocumentsPage />} /> {/* Added DocumentsPage route */}
                           
                           {/* Route par défaut */}
                           <Route path="*" element={<Navigate to="/dashboard" replace />} />
