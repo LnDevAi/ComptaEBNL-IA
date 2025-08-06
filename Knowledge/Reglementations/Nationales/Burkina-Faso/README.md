@@ -5,7 +5,7 @@ Ce dossier contient les textes réglementaires spécifiques au **Burkina Faso** 
 ## 📄 **Documents Disponibles**
 
 ### 📋 **Lois sur les Associations**
-- `Loi-Associations-2025.pdf` - **Nouvelle loi sur les associations** ← **À DÉPOSER ICI**
+- ✅ `DECRET-N°2025-0959-PF-VF.pdf` - **NOUVEAU DÉCRET 2025 sur les associations** 🔥
 - Anciennes versions pour référence historique
 
 ### 📜 **Décrets d'Application**
@@ -41,25 +41,25 @@ Ce dossier contient les textes réglementaires spécifiques au **Burkina Faso** 
 Ces documents permettront à ComptaEBNL-IA de :
 
 ### ✅ **Conseils Juridiques Précis**
-- Références légales exactes
-- Procédures conformes
-- Obligations respectées
+- Références légales exactes (Décret 2025-0959)
+- Procédures conformes à la nouvelle réglementation
+- Obligations respectées selon la loi burkinabè
 
 ### ✅ **Formations Adaptées**
-- Modules spécialisés Burkina Faso
-- Cas pratiques nationaux
-- Certification incluant le droit burkinabè
+- Modules spécialisés Burkina Faso 2025
+- Cas pratiques nationaux actualisés
+- Certification incluant le nouveau droit burkinabè
 
 ### ✅ **Modèles Documentaires**
-- Statuts conformes à la loi burkinabè
-- Formulaires officiels
-- Procès-verbaux types
+- Statuts conformes au Décret 2025-0959
+- Formulaires officiels mis à jour
+- Procès-verbaux types selon nouvelle loi
 
 ## 📅 **Historique des Versions**
 
 | Date | Document | Statut | Notes |
 |------|----------|--------|-------|
-| 2025 | Nouvelle loi associations | **À intégrer** | Version la plus récente |
+| 2025 | **DECRET-N°2025-0959-PF-VF.pdf** | ✅ **INTÉGRÉ** | **Version la plus récente** |
 | ... | Versions antérieures | Archivées | Pour référence |
 
 ## 🔄 **Maintenance**
@@ -71,11 +71,15 @@ Ces documents permettront à ComptaEBNL-IA de :
 
 ---
 
-## 📌 **PRÊT POUR DÉPÔT !**
+## ✅ **DOCUMENT INTÉGRÉ !**
 
-🎯 **Tu peux maintenant déposer la `Loi-Associations-2025.pdf` directement dans ce dossier !**
+🎯 **Le Décret N°2025-0959 sur les associations est maintenant disponible pour l'IA !**
 
-La structure est créée et l'IA pourra immédiatement utiliser ce document pour enrichir ses réponses sur les associations burkinabè.
+ComptaEBNL-IA peut désormais :
+- 🇧🇫 **Conseiller** selon la nouvelle loi burkinabè
+- 📚 **Former** sur la réglementation 2025
+- 📋 **Proposer** des modèles conformes
+- ✅ **Certifier** la conformité juridique
 
 ---
-*Dossier créé : Janvier 2025*
+*Document intégré : Janvier 2025*
