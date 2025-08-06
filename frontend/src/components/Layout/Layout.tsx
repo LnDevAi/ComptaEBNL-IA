@@ -34,6 +34,8 @@ import {
   Logout,
   Person,
   Settings,
+  School,
+  EmojiEvents,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -102,6 +104,16 @@ const navigationItems: MenuItem[] = [
     text: 'Audit',
     icon: <Security />,
     path: '/audit',
+  },
+  {
+    text: 'Formation EBNL',
+    icon: <School />,
+    path: '/learning',
+  },
+  {
+    text: 'Certificats',
+    icon: <EmojiEvents />,
+    path: '/learning/certificats',
   },
 ];
 

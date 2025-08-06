@@ -25,6 +25,11 @@ import EcrituresPage from './pages/Ecritures/EcrituresPage'; // Added EcrituresP
 import EntitesPage from './pages/Entites/EntitesPage'; // Added EntitesPage component
 import DocumentsPage from './pages/Documents/DocumentsPage'; // Added DocumentsPage component
 import ReportsPage from './pages/Reports/ReportsPage'; // Added ReportsPage component
+import LearningDashboard from './pages/Learning/LearningDashboard';
+import FormationCatalog from './pages/Learning/FormationCatalog';
+import FormationDetail from './pages/Learning/FormationDetail';
+import LessonPlayer from './pages/Learning/LessonPlayer';
+import CertificateDashboard from './pages/Learning/CertificateDashboard';
 
 // Context
 import { AuthProvider } from './context/AuthContext';
@@ -186,6 +191,13 @@ const App: React.FC = () => {
                           <Route path="/audit" element={<Audit />} />
                           <Route path="billing" element={<BillingDashboard />} /> {/* Added BillingDashboard route */}
                           <Route path="documents" element={<DocumentsPage />} /> {/* Added DocumentsPage route */}
+                          
+                          {/* E-learning */}
+                          <Route path="/learning" element={<LearningDashboard />} />
+                          <Route path="/learning/formations" element={<FormationCatalog />} />
+                          <Route path="/learning/formations/:id" element={<FormationDetail />} />
+                          <Route path="/learning/lecons/:id" element={<LessonPlayer />} />
+                          <Route path="/learning/certificats" element={<CertificateDashboard />} />
                           
                           {/* Route par défaut */}
                           <Route path="*" element={<Navigate to="/dashboard" replace />} />
