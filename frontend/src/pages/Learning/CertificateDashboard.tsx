@@ -116,6 +116,28 @@ const CertificateDashboard: React.FC = () => {
     // TODO: Ajouter une notification
   };
 
+  const downloadCertificate = async (numeroCertificat: string) => {
+    try {
+      const response = await apiClient.get(
+        `/api/v1/certificats/${numeroCertificat}/telecharger`,
+        { responseType: 'blob' }
+      );
+      
+      // Créer un lien de téléchargement
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `certificat_${numeroCertificat}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Erreur lors du téléchargement');
+    }
+  };
+
   const getStatutColor = (statut: string) => {
     switch (statut) {
       case 'valide': return 'success';
@@ -400,6 +422,7 @@ const CertificateDashboard: React.FC = () => {
                         size="small"
                         startIcon={<Download />}
                         disabled={!certificat.fichier_pdf}
+                        onClick={() => downloadCertificate(certificat.numero_certificat)}
                       >
                         PDF
                       </Button>
@@ -571,6 +594,7 @@ const CertificateDashboard: React.FC = () => {
                       variant="contained"
                       startIcon={<Download />}
                       disabled={!selectedCertificat.fichier_pdf}
+                      onClick={() => downloadCertificate(selectedCertificat.numero_certificat)}
                       sx={{ mb: 1 }}
                     >
                       Télécharger le PDF

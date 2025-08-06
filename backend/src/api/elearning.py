@@ -3,11 +3,35 @@ API E-Learning ComptaEBNL-IA
 Gestion des formations, inscriptions, quiz et certificats pour les EBNL de l'espace OHADA
 """
 
-from flask import Blueprint, request, jsonify, current_app, g
+from flask import Blueprint, request, jsonify, current_app, g, send_file
 from datetime import datetime, timedelta
 import json
 import uuid
+import os
+import io
 from functools import wraps
+
+# Import des services
+try:
+    from services.certificate_generator import CertificateGenerator
+except ImportError:
+    CertificateGenerator = None
+
+try:
+    from services.subscription_service import (
+        check_formation_access, check_certificate_generation, 
+        check_pdf_download_access, get_user_limitations
+    )
+except ImportError:
+    # Fonctions de fallback si le service subscription n'est pas disponible
+    def check_formation_access(user_id, formation):
+        return True, ""
+    def check_certificate_generation(user_id):
+        return True, ""
+    def check_pdf_download_access(user_id):
+        return True
+    def get_user_limitations(user_id):
+        return {}
 
 # Import des modèles (à adapter selon la structure)
 try:
@@ -226,12 +250,13 @@ def inscrire_formation(formation_id):
                 'message': 'Vous êtes déjà inscrit à cette formation'
             }), 400
         
-        # Vérifier l'accès selon le plan
-        user_plan = getattr(g, 'current_subscription', {}).get('plan', {}).get('type_plan', 'gratuit')
-        if not check_formation_access(formation, user_plan):
+        # Vérifier l'accès selon le plan d'abonnement
+        access_allowed, access_message = check_formation_access(user_id, formation)
+        if not access_allowed:
             return jsonify({
                 'success': False,
-                'message': f'Cette formation nécessite un abonnement {formation.plan_requis}',
+                'message': access_message,
+                'upgrade_required': True,
                 'plan_requis': formation.plan_requis
             }), 403
         
@@ -859,6 +884,15 @@ def generer_certificat(formation_id):
         
         user_id = get_current_user_id()
         
+        # Vérifier la limite de certificats selon le plan
+        cert_allowed, cert_message = check_certificate_generation(user_id)
+        if not cert_allowed:
+            return jsonify({
+                'success': False,
+                'message': cert_message,
+                'upgrade_required': True
+            }), 403
+        
         # Vérifier que la formation est terminée
         inscription = InscriptionFormation.query.filter_by(
             formation_id=formation_id,
@@ -911,9 +945,41 @@ def generer_certificat(formation_id):
         certificat.numero_certificat = certificat.generer_numero()
         certificat.mention = certificat.calculer_mention(note_finale)
         
-        # TODO: Générer le PDF du certificat
-        # certificat.fichier_pdf = generate_certificate_pdf(certificat)
-        # certificat.hash_verification = generate_certificate_hash(certificat)
+        # Générer le PDF du certificat
+        if CertificateGenerator:
+            try:
+                # Préparer les données pour le générateur
+                certificat_data = {
+                    'numero_certificat': certificat.numero_certificat,
+                    'nom_beneficiaire': nom_beneficiaire,
+                    'formation_titre': formation.titre,
+                    'categorie_nom': formation.categorie.nom,
+                    'duree_formation': formation.duree_estimee // 60,  # Conversion en heures
+                    'date_obtention': datetime.utcnow().isoformat(),
+                    'note_finale': note_finale,
+                    'mention': certificat.mention
+                }
+                
+                # Générer le PDF
+                generator = CertificateGenerator()
+                pdf_content = generator.generate_certificate(certificat_data)
+                
+                # Sauvegarder le fichier PDF
+                certificates_dir = os.path.join(current_app.instance_path, 'certificates')
+                os.makedirs(certificates_dir, exist_ok=True)
+                
+                pdf_filename = f"certificat_{certificat.numero_certificat}.pdf"
+                pdf_path = os.path.join(certificates_dir, pdf_filename)
+                
+                with open(pdf_path, 'wb') as f:
+                    f.write(pdf_content)
+                
+                # Stocker le chemin relatif dans la base
+                certificat.fichier_pdf = f"certificates/{pdf_filename}"
+                
+            except Exception as e:
+                current_app.logger.error(f"Erreur génération PDF: {str(e)}")
+                # Continue sans le PDF en cas d'erreur
         
         db.session.add(certificat)
         
@@ -933,6 +999,93 @@ def generer_certificat(formation_id):
         return jsonify({
             'success': False,
             'message': f'Erreur lors de la génération du certificat: {str(e)}'
+        }), 500
+
+@elearning_bp.route('/certificats/<string:numero_certificat>/telecharger', methods=['GET'])
+@subscription_required
+def telecharger_certificat(numero_certificat):
+    """Télécharge le PDF d'un certificat"""
+    try:
+        user_id = get_current_user_id()
+        
+        # Vérifier l'accès au téléchargement PDF selon le plan
+        if not check_pdf_download_access(user_id):
+            return jsonify({
+                'success': False,
+                'message': 'Le téléchargement PDF nécessite un abonnement Professionnel ou Enterprise',
+                'upgrade_required': True
+            }), 403
+        
+        # Vérifier que le certificat appartient à l'utilisateur
+        certificat = Certificat.query.filter_by(
+            numero_certificat=numero_certificat,
+            utilisateur_id=user_id
+        ).first()
+        
+        if not certificat:
+            return jsonify({
+                'success': False,
+                'message': 'Certificat non trouvé ou non autorisé'
+            }), 404
+        
+        if not certificat.fichier_pdf:
+            return jsonify({
+                'success': False,
+                'message': 'PDF du certificat non disponible'
+            }), 404
+        
+        # Chemin complet du fichier PDF
+        pdf_path = os.path.join(current_app.instance_path, certificat.fichier_pdf)
+        
+        if not os.path.exists(pdf_path):
+            # Régénérer le PDF si le fichier n'existe pas
+            if CertificateGenerator:
+                try:
+                    certificat_data = {
+                        'numero_certificat': certificat.numero_certificat,
+                        'nom_beneficiaire': certificat.nom_beneficiaire,
+                        'formation_titre': certificat.formation.titre,
+                        'categorie_nom': certificat.formation.categorie.nom,
+                        'duree_formation': certificat.formation.duree_estimee // 60,
+                        'date_obtention': certificat.date_obtention.isoformat(),
+                        'note_finale': certificat.note_finale,
+                        'mention': certificat.mention
+                    }
+                    
+                    generator = CertificateGenerator()
+                    pdf_content = generator.generate_certificate(certificat_data)
+                    
+                    # Créer le dossier si nécessaire
+                    os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+                    
+                    # Sauvegarder le fichier
+                    with open(pdf_path, 'wb') as f:
+                        f.write(pdf_content)
+                        
+                except Exception as e:
+                    current_app.logger.error(f"Erreur régénération PDF: {str(e)}")
+                    return jsonify({
+                        'success': False,
+                        'message': 'Erreur lors de la génération du PDF'
+                    }), 500
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'Service de génération PDF non disponible'
+                }), 500
+        
+        # Envoyer le fichier PDF
+        return send_file(
+            pdf_path,
+            as_attachment=True,
+            download_name=f"certificat_{certificat.numero_certificat}.pdf",
+            mimetype='application/pdf'
+        )
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Erreur lors du téléchargement: {str(e)}'
         }), 500
 
 @elearning_bp.route('/certificats/<string:numero_certificat>/verifier', methods=['GET'])
@@ -970,6 +1123,29 @@ def verifier_certificat(numero_certificat):
         return jsonify({
             'success': False,
             'message': f'Erreur lors de la vérification: {str(e)}'
+        }), 500
+
+# ============================
+# ENDPOINTS PLAN ET LIMITATIONS
+# ============================
+
+@elearning_bp.route('/mon-plan', methods=['GET'])
+@subscription_required
+def get_user_plan_info():
+    """Récupère les informations du plan et limitations de l'utilisateur"""
+    try:
+        user_id = get_current_user_id()
+        limitations = get_user_limitations(user_id)
+        
+        return jsonify({
+            'success': True,
+            'plan_info': limitations
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Erreur lors de la récupération des informations: {str(e)}'
         }), 500
 
 # ============================
