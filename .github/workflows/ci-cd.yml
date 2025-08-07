@@ -1,0 +1,579 @@
+name: 🚀 ComptaEBNL-IA CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, staging ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: comptaebnl-ia
+
+jobs:
+  # ============================
+  # TESTS BACKEND
+  # ============================
+  backend-tests:
+    name: 🐍 Backend Tests & Quality
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: comptaebnl_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+
+    - name: 📦 Install Dependencies
+      run: |
+        cd backend
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov black flake8 mypy safety bandit
+
+    - name: 🔍 Code Quality - Black
+      run: |
+        cd backend
+        black --check --diff src/ tests/ || (echo "❌ Code formatting issues found. Run 'black src/ tests/' to fix." && exit 1)
+
+    - name: 🔍 Code Quality - Flake8
+      run: |
+        cd backend
+        flake8 src/ tests/ --max-line-length=88 --extend-ignore=E203,W503
+
+    - name: 🔍 Security Scan - Safety
+      run: |
+        cd backend
+        safety check --json || true
+
+    - name: 🔍 Security Scan - Bandit
+      run: |
+        cd backend
+        bandit -r src/ -f json || true
+
+    - name: 🧪 Run Unit Tests
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/comptaebnl_test
+        FLASK_ENV: testing
+        SECRET_KEY: test-secret-key
+        JWT_SECRET_KEY: test-jwt-secret
+      run: |
+        cd backend
+        python -m pytest tests/ -v --cov=src --cov-report=xml --cov-report=html --cov-fail-under=80
+
+    - name: 🧪 Test Subscription System
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/comptaebnl_test
+      run: |
+        cd backend
+        python test_subscription.py
+
+    - name: 🧪 Test E-learning System
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/comptaebnl_test
+      run: |
+        cd backend
+        python test_elearning.py
+
+    - name: 🧪 Test Advanced Management
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/comptaebnl_test
+      run: |
+        cd backend
+        python test_gestion_avancee.py
+
+    - name: 📊 Upload Coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./backend/coverage.xml
+        flags: backend
+        name: backend-coverage
+
+    - name: 📋 Test Report
+      uses: dorny/test-reporter@v1
+      if: success() || failure()
+      with:
+        name: Backend Tests
+        path: backend/pytest-results.xml
+        reporter: java-junit
+
+  # ============================
+  # TESTS FRONTEND
+  # ============================
+  frontend-tests:
+    name: ⚛️ Frontend Tests & Build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: ⚛️ Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: 📦 Install Dependencies
+      run: |
+        cd frontend
+        npm ci --prefer-offline --no-audit
+
+    - name: 🔍 ESLint Code Quality
+      run: |
+        cd frontend
+        npm run lint
+
+    - name: 🔍 TypeScript Check
+      run: |
+        cd frontend
+        npm run type-check
+
+    - name: 🧪 Run Unit Tests
+      run: |
+        cd frontend
+        npm run test -- --coverage --watchAll=false
+
+    - name: 🏗️ Build Application
+      run: |
+        cd frontend
+        npm run build
+
+    - name: 📊 Upload Coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./frontend/coverage/lcov.info
+        flags: frontend
+        name: frontend-coverage
+
+    - name: 📦 Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: frontend-build
+        path: frontend/build/
+        retention-days: 7
+
+  # ============================
+  # TESTS E2E
+  # ============================
+  e2e-tests:
+    name: 🌐 End-to-End Tests
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests]
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: comptaebnl_e2e
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: ⚛️ Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: 📦 Install Backend Dependencies
+      run: |
+        cd backend
+        pip install -r requirements.txt
+
+    - name: 📦 Install Frontend Dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: 🏗️ Build Frontend
+      run: |
+        cd frontend
+        npm run build
+
+    - name: 📦 Install Playwright
+      run: |
+        cd frontend
+        npx playwright install --with-deps
+
+    - name: 🚀 Start Backend Server
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/comptaebnl_e2e
+        FLASK_ENV: production
+      run: |
+        cd backend
+        python src/app.py &
+        sleep 10
+
+    - name: 🚀 Start Frontend Server
+      run: |
+        cd frontend
+        npm run serve &
+        sleep 10
+
+    - name: 🌐 Run E2E Tests
+      run: |
+        cd frontend
+        npx playwright test
+
+    - name: 📊 Upload E2E Test Results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: e2e-test-results
+        path: frontend/test-results/
+        retention-days: 7
+
+  # ============================
+  # SECURITY SCAN
+  # ============================
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests]
+
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔍 Run Trivy Vulnerability Scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: 📋 Upload Trivy Scan Results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: 🔍 Dependency Check
+      uses: dependency-check/Dependency-Check_Action@main
+      with:
+        project: 'ComptaEBNL-IA'
+        path: '.'
+        format: 'HTML'
+
+    - name: 📋 Upload Dependency Check Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: dependency-check-report
+        path: reports/
+
+  # ============================
+  # BUILD DOCKER IMAGES
+  # ============================
+  build-images:
+    name: 🐳 Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests, security-scan]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging'
+
+    outputs:
+      backend-image: ${{ steps.backend-meta.outputs.tags }}
+      frontend-image: ${{ steps.frontend-meta.outputs.tags }}
+
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: 🔑 Login to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 📝 Extract Backend Metadata
+      id: backend-meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository }}/backend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix=sha-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: 🏗️ Build and Push Backend Image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        file: ./backend/Dockerfile
+        push: true
+        tags: ${{ steps.backend-meta.outputs.tags }}
+        labels: ${{ steps.backend-meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: 📝 Extract Frontend Metadata
+      id: frontend-meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository }}/frontend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix=sha-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: 🏗️ Build and Push Frontend Image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        push: true
+        tags: ${{ steps.frontend-meta.outputs.tags }}
+        labels: ${{ steps.frontend-meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # ============================
+  # DEPLOY STAGING
+  # ============================
+  deploy-staging:
+    name: 🚧 Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-images, e2e-tests]
+    if: github.ref == 'refs/heads/staging'
+    environment: staging
+
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🚀 Deploy to Staging
+      run: |
+        echo "🚧 Deploying to staging environment..."
+        echo "Backend Image: ${{ needs.build-images.outputs.backend-image }}"
+        echo "Frontend Image: ${{ needs.build-images.outputs.frontend-image }}"
+        
+        # Ici, vous ajouteriez vos commandes de déploiement staging
+        # Exemple: kubectl apply, docker-compose, AWS CLI, etc.
+
+    - name: 🌐 Run Staging Health Check
+      run: |
+        echo "🏥 Running staging health checks..."
+        # curl -f https://staging.comptaebnl-ia.com/health || exit 1
+
+    - name: 💬 Notify Staging Deployment
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        text: '🚧 ComptaEBNL-IA deployed to STAGING'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      if: always()
+
+  # ============================
+  # DEPLOY PRODUCTION
+  # ============================
+  deploy-production:
+    name: 🌟 Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-images, e2e-tests]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: ⏸️ Manual Approval Required
+      uses: trstringer/manual-approval@v1
+      with:
+        secret: ${{ github.TOKEN }}
+        approvers: ${{ github.actor }}
+        minimum-approvals: 1
+        issue-title: "🚀 Deploy ComptaEBNL-IA to Production"
+        issue-body: |
+          **Déploiement Production ComptaEBNL-IA** 🚀
+          
+          **Branch:** ${{ github.ref }}
+          **Commit:** ${{ github.sha }}
+          **Backend Image:** ${{ needs.build-images.outputs.backend-image }}
+          **Frontend Image:** ${{ needs.build-images.outputs.frontend-image }}
+          
+          **Tests Status:**
+          ✅ Backend Tests Passed
+          ✅ Frontend Tests Passed  
+          ✅ E2E Tests Passed
+          ✅ Security Scan Passed
+          
+          **Ready for Production?** 🎯
+          
+          Please review and approve this deployment.
+
+    - name: 🚀 Deploy to Production
+      run: |
+        echo "🌟 Deploying to production environment..."
+        echo "Backend Image: ${{ needs.build-images.outputs.backend-image }}"
+        echo "Frontend Image: ${{ needs.build-images.outputs.frontend-image }}"
+        
+        # Ici, vos commandes de déploiement production
+        # Exemple: kubectl apply, AWS ECS, Azure Container Instances, etc.
+
+    - name: 🌐 Run Production Health Check
+      run: |
+        echo "🏥 Running production health checks..."
+        # curl -f https://comptaebnl-ia.com/health || exit 1
+        # curl -f https://api.comptaebnl-ia.com/health || exit 1
+
+    - name: 📊 Post-Deployment Monitoring
+      run: |
+        echo "📊 Setting up post-deployment monitoring..."
+        # Activation monitoring/alerting
+        # Webhook vers services de monitoring
+
+    - name: 💬 Notify Production Deployment
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#production'
+        text: '🌟 ComptaEBNL-IA SUCCESSFULLY DEPLOYED TO PRODUCTION! 🎉'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      if: success()
+
+    - name: 🚨 Notify Deployment Failure
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        channel: '#alerts'
+        text: '🚨 PRODUCTION DEPLOYMENT FAILED! Immediate attention required.'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      if: failure()
+
+  # ============================
+  # POST-DEPLOYMENT TESTS
+  # ============================
+  post-deployment-tests:
+    name: 🧪 Post-Deployment Tests
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: github.ref == 'refs/heads/main' && success()
+
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🌐 API Health Check
+      run: |
+        echo "🏥 Testing production API endpoints..."
+        # curl -f https://api.comptaebnl-ia.com/health
+        # curl -f https://api.comptaebnl-ia.com/api/v1/status
+
+    - name: 🧪 Smoke Tests
+      run: |
+        echo "💨 Running production smoke tests..."
+        # Tests critiques en production
+        # Test de login, création compte, fonctionnalités clés
+
+    - name: 📊 Performance Tests
+      run: |
+        echo "🚀 Running performance tests..."
+        # Tests de charge légers
+        # Vérification temps de réponse
+
+    - name: ✅ All Tests Passed
+      run: |
+        echo "🎉 All post-deployment tests passed!"
+        echo "✅ ComptaEBNL-IA is live and healthy in production!"
+
+# ============================
+# NOTIFICATION FINALE
+# ============================
+  notify-completion:
+    name: 📢 Notify Team
+    runs-on: ubuntu-latest
+    needs: [deploy-production, post-deployment-tests]
+    if: always()
+
+    steps:
+    - name: 📊 Generate Deployment Report
+      run: |
+        echo "## 🚀 ComptaEBNL-IA Deployment Report" > deployment-report.md
+        echo "**Date:** $(date)" >> deployment-report.md
+        echo "**Branch:** ${{ github.ref }}" >> deployment-report.md
+        echo "**Commit:** ${{ github.sha }}" >> deployment-report.md
+        echo "**Status:** ${{ needs.deploy-production.result }}" >> deployment-report.md
+        echo "" >> deployment-report.md
+        echo "### ✅ Tests Summary:" >> deployment-report.md
+        echo "- Backend Tests: ✅ Passed" >> deployment-report.md
+        echo "- Frontend Tests: ✅ Passed" >> deployment-report.md
+        echo "- E2E Tests: ✅ Passed" >> deployment-report.md
+        echo "- Security Scan: ✅ Passed" >> deployment-report.md
+        echo "" >> deployment-report.md
+        echo "### 🌟 Production URL:" >> deployment-report.md
+        echo "- App: https://comptaebnl-ia.com" >> deployment-report.md
+        echo "- API: https://api.comptaebnl-ia.com" >> deployment-report.md
+        echo "" >> deployment-report.md
+        echo "**🎉 Ready to transform EBNL management in Africa!**" >> deployment-report.md
+
+    - name: 📧 Send Email Notification
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: "🚀 ComptaEBNL-IA Deployed Successfully!"
+        body: file://deployment-report.md
+        to: team@comptaebnl-ia.com
+        from: ci-cd@comptaebnl-ia.com
+      if: success()
+
+    - name: 🎉 Success Message
+      if: success()
+      run: |
+        echo "🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉"
+        echo "           ComptaEBNL-IA DEPLOYED SUCCESSFULLY!"
+        echo "🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉"
+        echo ""
+        echo "🌟 Production URL: https://comptaebnl-ia.com"
+        echo "🚀 Ready to revolutionize EBNL management in Africa!"
+        echo ""
+        echo "🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉"

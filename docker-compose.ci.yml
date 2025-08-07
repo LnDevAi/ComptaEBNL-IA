@@ -1,0 +1,201 @@
+version: '3.8'
+
+services:
+  # ============================
+  # DATABASE DE TEST
+  # ============================
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: comptaebnl-postgres-test
+    environment:
+      POSTGRES_DB: comptaebnl_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - comptaebnl-test-network
+
+  # ============================
+  # REDIS POUR CACHE TEST
+  # ============================
+  redis-test:
+    image: redis:7-alpine
+    container_name: comptaebnl-redis-test
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - comptaebnl-test-network
+
+  # ============================
+  # BACKEND TEST
+  # ============================
+  backend-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+      args:
+        BUILD_ENV: test
+    container_name: comptaebnl-backend-test
+    environment:
+      FLASK_ENV: testing
+      DATABASE_URL: postgresql://postgres:postgres@postgres-test:5432/comptaebnl_test
+      REDIS_URL: redis://redis-test:6379/0
+      SECRET_KEY: test-secret-key-for-ci-cd
+      JWT_SECRET_KEY: test-jwt-secret-key
+      CELERY_BROKER_URL: redis://redis-test:6379/1
+      CELERY_RESULT_BACKEND: redis://redis-test:6379/2
+    ports:
+      - "5001:5000"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    volumes:
+      - ./backend/tests:/app/tests
+      - ./backend/coverage:/app/coverage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - comptaebnl-test-network
+    command: ["python", "-m", "pytest", "tests/", "-v", "--cov=src", "--cov-report=xml", "--cov-report=html"]
+
+  # ============================
+  # FRONTEND TEST
+  # ============================
+  frontend-test:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.test
+      args:
+        BUILD_ENV: test
+    container_name: comptaebnl-frontend-test
+    environment:
+      NODE_ENV: test
+      REACT_APP_API_URL: http://backend-test:5000
+      CI: true
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/coverage:/app/coverage
+      - ./frontend/test-results:/app/test-results
+    networks:
+      - comptaebnl-test-network
+    command: ["npm", "run", "test:ci"]
+
+  # ============================
+  # E2E TEST RUNNER
+  # ============================
+  e2e-test:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.e2e
+    container_name: comptaebnl-e2e-test
+    environment:
+      BASE_URL: http://frontend-test:3000
+      API_URL: http://backend-test:5000
+    depends_on:
+      backend-test:
+        condition: service_healthy
+      frontend-test:
+        condition: service_started
+    volumes:
+      - ./frontend/e2e:/app/e2e
+      - ./frontend/test-results:/app/test-results
+    networks:
+      - comptaebnl-test-network
+    command: ["npx", "playwright", "test", "--config=playwright.config.ci.ts"]
+
+  # ============================
+  # SECURITY SCANNER
+  # ============================
+  security-scan:
+    image: aquasec/trivy:latest
+    container_name: comptaebnl-security-scan
+    volumes:
+      - .:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /workspace
+    command: ["trivy", "fs", "--format", "json", "--output", "trivy-results.json", "."]
+    networks:
+      - comptaebnl-test-network
+
+  # ============================
+  # LOAD TESTING
+  # ============================
+  load-test:
+    image: loadimpact/k6:latest
+    container_name: comptaebnl-load-test
+    volumes:
+      - ./tests/load:/scripts
+    environment:
+      BASE_URL: http://backend-test:5000
+    depends_on:
+      backend-test:
+        condition: service_healthy
+    networks:
+      - comptaebnl-test-network
+    command: ["k6", "run", "--vus", "10", "--duration", "30s", "/scripts/api-load-test.js"]
+
+  # ============================
+  # MONITORING TEST
+  # ============================
+  prometheus-test:
+    image: prom/prometheus:latest
+    container_name: comptaebnl-prometheus-test
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.test.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - comptaebnl-test-network
+
+  # ============================
+  # CLEANUP SERVICE
+  # ============================
+  cleanup:
+    image: alpine:latest
+    container_name: comptaebnl-cleanup
+    volumes:
+      - postgres_test_data:/cleanup/postgres
+      - ./coverage:/cleanup/coverage
+      - ./test-results:/cleanup/test-results
+    networks:
+      - comptaebnl-test-network
+    command: >
+      sh -c "
+        echo 'Nettoyage des données de test...' &&
+        rm -rf /cleanup/coverage/* &&
+        rm -rf /cleanup/test-results/* &&
+        echo 'Nettoyage terminé ✅'
+      "
+
+volumes:
+  postgres_test_data:
+    driver: local
+
+networks:
+  comptaebnl-test-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

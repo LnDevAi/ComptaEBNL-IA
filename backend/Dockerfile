@@ -1,44 +1,61 @@
-# Dockerfile pour Backend ComptaEBNL-IA
+# ComptaEBNL-IA Backend Dockerfile
 FROM python:3.11-slim
 
 # Métadonnées
 LABEL maintainer="ComptaEBNL-IA Team"
-LABEL description="Backend Flask pour ComptaEBNL-IA - Comptabilité EBNL avec IA"
+LABEL description="Backend Flask pour plateforme de gestion EBNL OHADA"
+LABEL version="1.0"
 
 # Variables d'environnement
-ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV FLASK_APP=main.py
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV FLASK_APP=src/app.py
 ENV FLASK_ENV=production
 
-# Répertoire de travail
-WORKDIR /app
+# Créer utilisateur non-root pour la sécurité
+RUN groupadd -r comptaebnl && useradd -r -g comptaebnl comptaebnl
 
-# Installation des dépendances système
+# Installer les dépendances système
 RUN apt-get update && apt-get install -y \
-    curl \
     gcc \
+    g++ \
+    libpq-dev \
+    libffi-dev \
+    libssl-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copie et installation des dépendances Python
+# Définir le répertoire de travail
+WORKDIR /app
+
+# Copier les fichiers de dépendances
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Copie du code source
-COPY src/ .
+# Installer les dépendances Python
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Création des répertoires nécessaires
-RUN mkdir -p /app/data /app/uploads /app/static
+# Copier le code source
+COPY src/ ./src/
+COPY migrations/ ./migrations/
+COPY tests/ ./tests/
+COPY *.py ./
 
-# Permissions
-RUN chmod +x main.py
+# Créer les dossiers nécessaires
+RUN mkdir -p instance/uploads instance/certificates instance/logs
 
-# Port d'exposition
-EXPOSE 5001
+# Changer la propriété vers l'utilisateur non-root
+RUN chown -R comptaebnl:comptaebnl /app
+
+# Basculer vers l'utilisateur non-root
+USER comptaebnl
+
+# Exposer le port
+EXPOSE 5000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5001/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
 
-# Commande de démarrage
-CMD ["python3", "main.py"]
+# Commande par défaut
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "60", "src.app:app"]
