@@ -1,0 +1,90 @@
+# ComptaEBNL-IA Frontend Test Dockerfile
+FROM node:18-alpine
+
+# Métadonnées
+LABEL maintainer="ComptaEBNL-IA Team"
+LABEL description="Frontend React pour tests approfondis ComptaEBNL-IA"
+LABEL version="test-1.0"
+
+# Variables d'environnement pour tests
+ENV NODE_ENV=test
+ENV CI=true
+ENV GENERATE_SOURCEMAP=false
+ENV SKIP_PREFLIGHT_CHECK=true
+
+# Installer les dépendances système pour tests
+RUN apk add --no-cache \
+    curl \
+    wget \
+    git \
+    bash \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
+
+# Variables pour Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV CHROMIUM_PATH=/usr/bin/chromium-browser
+
+# Créer utilisateur test
+RUN addgroup -g 1001 -S testuser && \
+    adduser -S testuser -u 1001
+
+# Définir le répertoire de travail
+WORKDIR /app
+
+# Copier package.json et package-lock.json
+COPY package*.json ./
+
+# Installer les dépendances
+RUN npm ci --include=dev --prefer-offline --no-audit
+
+# Installer les dépendances de test supplémentaires
+RUN npm install --save-dev \
+    @testing-library/jest-dom \
+    @testing-library/react \
+    @testing-library/user-event \
+    @playwright/test \
+    playwright \
+    jest-environment-jsdom \
+    jest-junit \
+    eslint \
+    @typescript-eslint/parser \
+    @typescript-eslint/eslint-plugin \
+    typescript \
+    serve
+
+# Copier le code source
+COPY public/ ./public/
+COPY src/ ./src/
+COPY tsconfig.json ./
+COPY tailwind.config.js ./
+COPY postcss.config.js ./
+
+# Créer les dossiers nécessaires pour tests
+RUN mkdir -p coverage test-results reports \
+    test-results/videos test-results/screenshots \
+    playwright-report
+
+# Installer Playwright browsers
+RUN npx playwright install chromium
+
+# Changer la propriété vers l'utilisateur test
+RUN chown -R testuser:testuser /app
+
+# Basculer vers l'utilisateur test
+USER testuser
+
+# Exposer le port
+EXPOSE 3000
+
+# Health check spécialisé pour tests
+HEALTHCHECK --interval=15s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:3000 || exit 1
+
+# Commande par défaut pour tests
+CMD ["npm", "start"]

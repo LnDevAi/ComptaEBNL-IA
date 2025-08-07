@@ -1,0 +1,70 @@
+# ComptaEBNL-IA Backend Test Dockerfile
+FROM python:3.11-slim
+
+# Métadonnées
+LABEL maintainer="ComptaEBNL-IA Team"
+LABEL description="Backend Flask pour tests approfondis ComptaEBNL-IA"
+LABEL version="test-1.0"
+
+# Variables d'environnement pour tests
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV FLASK_APP=src/app.py
+ENV FLASK_ENV=testing
+ENV TESTING=true
+
+# Installer les dépendances système pour tests
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libpq-dev \
+    libffi-dev \
+    libssl-dev \
+    curl \
+    wget \
+    git \
+    postgresql-client \
+    redis-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# Créer utilisateur test
+RUN groupadd -r testuser && useradd -r -g testuser testuser
+
+# Définir le répertoire de travail
+WORKDIR /app
+
+# Copier les fichiers de dépendances
+COPY requirements.txt .
+COPY requirements-test.txt ./
+
+# Installer les dépendances Python
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -r requirements-test.txt
+
+# Copier le code source
+COPY src/ ./src/
+COPY tests/ ./tests/
+COPY migrations/ ./migrations/
+COPY *.py ./
+
+# Créer les dossiers nécessaires pour tests
+RUN mkdir -p instance/uploads instance/certificates instance/logs \
+    instance/test_uploads instance/test_certificates instance/test_logs \
+    test_results coverage reports
+
+# Changer la propriété vers l'utilisateur test
+RUN chown -R testuser:testuser /app
+
+# Basculer vers l'utilisateur test
+USER testuser
+
+# Exposer le port
+EXPOSE 5000
+
+# Health check spécialisé pour tests
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+# Commande par défaut pour tests
+CMD ["python", "src/app.py"]

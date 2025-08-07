@@ -1,0 +1,421 @@
+version: '3.8'
+
+# 🧪 Environnement de Tests Complet ComptaEBNL-IA
+# Inclut tous les services nécessaires pour tests approfondis
+
+services:
+  # ============================
+  # BASE DE DONNÉES POSTGRESQL
+  # ============================
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: comptaebnl-postgres-test
+    environment:
+      POSTGRES_DB: comptaebnl_test
+      POSTGRES_USER: comptaebnl_test
+      POSTGRES_PASSWORD: test_password_2024
+      POSTGRES_MULTIPLE_DATABASES: comptaebnl_test,comptaebnl_integration,comptaebnl_e2e
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./tests/fixtures/sql:/docker-entrypoint-initdb.d
+      - ./backend/sql/init_test_data.sql:/docker-entrypoint-initdb.d/99_test_data.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U comptaebnl_test -d comptaebnl_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - comptaebnl-test-network
+
+  # ============================
+  # REDIS POUR CACHE ET SESSIONS
+  # ============================
+  redis-test:
+    image: redis:7-alpine
+    container_name: comptaebnl-redis-test
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_test_data:/data
+      - ./tests/fixtures/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - comptaebnl-test-network
+
+  # ============================
+  # BACKEND FLASK POUR TESTS
+  # ============================
+  backend-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+      args:
+        BUILD_ENV: test
+    container_name: comptaebnl-backend-test
+    environment:
+      # Configuration Flask
+      FLASK_ENV: testing
+      FLASK_DEBUG: 'true'
+      
+      # Base de données
+      DATABASE_URL: postgresql://comptaebnl_test:test_password_2024@postgres-test:5432/comptaebnl_test
+      
+      # Redis
+      REDIS_URL: redis://redis-test:6379/0
+      CELERY_BROKER_URL: redis://redis-test:6379/1
+      CELERY_RESULT_BACKEND: redis://redis-test:6379/2
+      
+      # Sécurité
+      SECRET_KEY: test-secret-key-ultra-secure-2024
+      JWT_SECRET_KEY: test-jwt-secret-key-ultra-secure-2024
+      
+      # APIs de test
+      STRIPE_SECRET_KEY: sk_test_51234567890abcdef
+      STRIPE_WEBHOOK_SECRET: whsec_test_123
+      PAYPAL_CLIENT_ID: test_paypal_client_id
+      PAYPAL_CLIENT_SECRET: test_paypal_client_secret
+      
+      # Mobile Money Test
+      MTN_MOMO_API_KEY: test_mtn_api_key
+      ORANGE_MONEY_API_KEY: test_orange_api_key
+      WAVE_API_KEY: test_wave_api_key
+      
+      # Configuration tests
+      TESTING: 'true'
+      WTF_CSRF_ENABLED: 'false'
+      
+    ports:
+      - "5001:5000"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/tests:/app/tests
+      - ./tests:/app/tests_integration
+      - test_uploads:/app/instance/uploads
+      - test_certificates:/app/instance/certificates
+      - test_logs:/app/instance/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - comptaebnl-test-network
+    command: ["python", "src/app.py"]
+
+  # ============================
+  # FRONTEND REACT POUR TESTS
+  # ============================
+  frontend-test:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.test
+      args:
+        BUILD_ENV: test
+    container_name: comptaebnl-frontend-test
+    environment:
+      NODE_ENV: test
+      REACT_APP_API_URL: http://backend-test:5000
+      REACT_APP_STRIPE_PUBLIC_KEY: pk_test_51234567890abcdef
+      CI: 'true'
+      GENERATE_SOURCEMAP: 'false'
+    ports:
+      - "3001:3000"
+    depends_on:
+      backend-test:
+        condition: service_healthy
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./tests/e2e:/app/tests/e2e
+      - test_frontend_coverage:/app/coverage
+    networks:
+      - comptaebnl-test-network
+    command: ["npm", "start"]
+
+  # ============================
+  # NGINX POUR TESTS E2E
+  # ============================
+  nginx-test:
+    image: nginx:alpine
+    container_name: comptaebnl-nginx-test
+    ports:
+      - "8080:80"
+    volumes:
+      - ./tests/fixtures/nginx/nginx.test.conf:/etc/nginx/nginx.conf
+      - ./frontend/build:/usr/share/nginx/html
+    depends_on:
+      - frontend-test
+      - backend-test
+    networks:
+      - comptaebnl-test-network
+
+  # ============================
+  # TESTS RUNNER PRINCIPAL
+  # ============================
+  test-runner:
+    build:
+      context: ./tests
+      dockerfile: Dockerfile.test-runner
+    container_name: comptaebnl-test-runner
+    environment:
+      # URLs des services
+      BACKEND_URL: http://backend-test:5000
+      FRONTEND_URL: http://frontend-test:3000
+      NGINX_URL: http://nginx-test:80
+      
+      # Base de données
+      DATABASE_URL: postgresql://comptaebnl_test:test_password_2024@postgres-test:5432/comptaebnl_test
+      REDIS_URL: redis://redis-test:6379/0
+      
+      # Configuration tests
+      TEST_ENV: comprehensive
+      PARALLEL_TESTS: 'true'
+      COVERAGE_THRESHOLD: 95
+      
+    depends_on:
+      backend-test:
+        condition: service_healthy
+      frontend-test:
+        condition: service_started
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    volumes:
+      - ./tests:/app/tests
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+      - test_reports:/app/reports
+      - test_coverage:/app/coverage
+    networks:
+      - comptaebnl-test-network
+    profiles:
+      - testing
+
+  # ============================
+  # TESTS E2E PLAYWRIGHT
+  # ============================
+  e2e-tests:
+    image: mcr.microsoft.com/playwright:v1.40.0-focal
+    container_name: comptaebnl-e2e-tests
+    environment:
+      BASE_URL: http://nginx-test:80
+      API_URL: http://backend-test:5000
+      HEADLESS: 'true'
+      BROWSER: chromium
+    depends_on:
+      nginx-test:
+        condition: service_started
+      backend-test:
+        condition: service_healthy
+    volumes:
+      - ./tests/e2e:/app/tests
+      - test_e2e_reports:/app/test-results
+      - test_e2e_videos:/app/test-results/videos
+      - test_e2e_screenshots:/app/test-results/screenshots
+    working_dir: /app
+    networks:
+      - comptaebnl-test-network
+    profiles:
+      - e2e
+
+  # ============================
+  # TESTS DE PERFORMANCE K6
+  # ============================
+  performance-tests:
+    image: grafana/k6:latest
+    container_name: comptaebnl-performance-tests
+    environment:
+      K6_OUT: json=results.json
+      BASE_URL: http://backend-test:5000
+    depends_on:
+      backend-test:
+        condition: service_healthy
+    volumes:
+      - ./tests/performance:/scripts
+      - test_performance_reports:/results
+    networks:
+      - comptaebnl-test-network
+    profiles:
+      - performance
+
+  # ============================
+  # MONITORING PROMETHEUS
+  # ============================
+  prometheus-test:
+    image: prom/prometheus:latest
+    container_name: comptaebnl-prometheus-test
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./tests/fixtures/prometheus/prometheus.test.yml:/etc/prometheus/prometheus.yml
+      - prometheus_test_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=24h'
+      - '--web.enable-lifecycle'
+    networks:
+      - comptaebnl-test-network
+    profiles:
+      - monitoring
+
+  # ============================
+  # MONITORING GRAFANA
+  # ============================
+  grafana-test:
+    image: grafana/grafana:latest
+    container_name: comptaebnl-grafana-test
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: test_admin_password
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - ./tests/fixtures/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./tests/fixtures/grafana/datasources:/etc/grafana/provisioning/datasources
+      - grafana_test_data:/var/lib/grafana
+    depends_on:
+      - prometheus-test
+    networks:
+      - comptaebnl-test-network
+    profiles:
+      - monitoring
+
+  # ============================
+  # MAILHOG POUR TESTS EMAIL
+  # ============================
+  mailhog-test:
+    image: mailhog/mailhog:latest
+    container_name: comptaebnl-mailhog-test
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - comptaebnl-test-network
+    profiles:
+      - email
+
+  # ============================
+  # JAEGER POUR TRACING
+  # ============================
+  jaeger-test:
+    image: jaegertracing/all-in-one:latest
+    container_name: comptaebnl-jaeger-test
+    ports:
+      - "16686:16686"  # Web UI
+      - "14268:14268"  # HTTP collector
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+    networks:
+      - comptaebnl-test-network
+    profiles:
+      - tracing
+
+  # ============================
+  # CLEANUP SERVICE
+  # ============================
+  cleanup:
+    image: alpine:latest
+    container_name: comptaebnl-cleanup
+    volumes:
+      - postgres_test_data:/cleanup/postgres
+      - redis_test_data:/cleanup/redis
+      - test_uploads:/cleanup/uploads
+      - test_certificates:/cleanup/certificates
+      - test_logs:/cleanup/logs
+      - test_reports:/cleanup/reports
+      - test_coverage:/cleanup/coverage
+    networks:
+      - comptaebnl-test-network
+    profiles:
+      - cleanup
+    command: >
+      sh -c "
+        echo 'Nettoyage des données de test...' &&
+        find /cleanup -type f -name '*.log' -delete &&
+        find /cleanup -type f -name '*.tmp' -delete &&
+        echo 'Nettoyage terminé ✅'
+      "
+
+# ============================
+# VOLUMES PERSISTANTS
+# ============================
+volumes:
+  # Données de base
+  postgres_test_data:
+    driver: local
+  redis_test_data:
+    driver: local
+  
+  # Stockage tests
+  test_uploads:
+    driver: local
+  test_certificates:
+    driver: local
+  test_logs:
+    driver: local
+  
+  # Rapports et coverage
+  test_reports:
+    driver: local
+  test_coverage:
+    driver: local
+  test_frontend_coverage:
+    driver: local
+  
+  # Tests E2E
+  test_e2e_reports:
+    driver: local
+  test_e2e_videos:
+    driver: local
+  test_e2e_screenshots:
+    driver: local
+  
+  # Tests performance
+  test_performance_reports:
+    driver: local
+  
+  # Monitoring
+  prometheus_test_data:
+    driver: local
+  grafana_test_data:
+    driver: local
+
+# ============================
+# RÉSEAUX
+# ============================
+networks:
+  comptaebnl-test-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+          gateway: 172.25.0.1
+
+# ============================
+# EXTENSION PROFILES
+# ============================
+# Utilisation :
+# docker-compose -f docker-compose.test.yml up                    # Services de base
+# docker-compose -f docker-compose.test.yml --profile testing up  # + Tests unitaires
+# docker-compose -f docker-compose.test.yml --profile e2e up      # + Tests E2E
+# docker-compose -f docker-compose.test.yml --profile performance up # + Tests perf
+# docker-compose -f docker-compose.test.yml --profile monitoring up  # + Monitoring
+# docker-compose -f docker-compose.test.yml --profile cleanup up     # Nettoyage

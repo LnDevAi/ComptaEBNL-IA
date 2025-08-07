@@ -1,0 +1,144 @@
+# ==========================================
+# DÉPENDANCES SPÉCIALISÉES POUR TESTS
+# ==========================================
+
+# ============================
+# FRAMEWORKS DE TESTS
+# ============================
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-flask==1.3.0
+pytest-mock==3.12.0
+pytest-xdist==3.3.1  # Tests parallèles
+pytest-html==4.1.1   # Rapports HTML
+pytest-json-report==1.5.0  # Rapports JSON
+pytest-benchmark==4.0.0    # Tests de performance
+pytest-timeout==2.2.0      # Timeout pour tests
+pytest-env==1.1.3          # Variables d'environnement
+
+# ============================
+# MOCKING ET FIXTURES
+# ============================
+factory-boy==3.3.0
+faker==19.13.0
+responses==0.24.1    # Mock HTTP requests
+freezegun==1.2.2     # Mock datetime
+pytest-factoryboy==2.6.0
+mimesis==11.1.0      # Génération données réalistes
+
+# ============================
+# BASE DE DONNÉES TESTS
+# ============================
+pytest-postgresql==5.0.0
+fakeredis==2.20.1
+sqlalchemy-utils==0.41.1
+alembic==1.12.1
+
+# ============================
+# TESTS D'INTÉGRATION
+# ============================
+httpx==0.25.2        # Client HTTP async
+requests-mock==1.11.0
+webtest==3.0.0       # Tests WSGI
+selenium==4.15.2     # Tests browser
+beautifulsoup4==4.12.2
+
+# ============================
+# TESTS DE PERFORMANCE
+# ============================
+locust==2.17.0       # Load testing
+memory-profiler==0.61.0
+psutil==5.9.6
+py-spy==0.3.14       # Python profiler
+
+# ============================
+# SÉCURITÉ ET QUALITÉ
+# ============================
+bandit==1.7.5        # Security linter
+safety==2.3.5        # Vulnerability scanner
+semgrep==1.45.0      # Static analysis
+pylint==3.0.2        # Code quality
+mypy==1.7.0          # Type checking
+coverage==7.3.2      # Coverage analysis
+
+# ============================
+# RAPPORTS ET MONITORING
+# ============================
+pytest-html==4.1.1
+coverage[toml]==7.3.2
+codecov==2.1.13
+allure-pytest==2.13.2  # Rapports avancés
+pytest-json-report==1.5.0
+
+# ============================
+# UTILITAIRES TESTS
+# ============================
+deepdiff==6.7.1      # Comparaison objets
+jsonschema==4.19.2   # Validation JSON
+pydantic==2.5.0      # Validation données
+marshmallow==3.20.1  # Sérialisation
+
+# ============================
+# TESTS API ET WEBHOOKS
+# ============================
+stripe==7.8.0         # Tests Stripe
+paypalrestsdk==1.13.3 # Tests PayPal
+httpretty==1.1.4     # Mock HTTP
+vcr-py==5.1.0        # Record/replay HTTP
+
+# ============================
+# TESTS E-LEARNING
+# ============================
+pillow==10.1.0       # Tests images/PDF
+reportlab==4.0.7     # Tests génération PDF
+qrcode==7.4.2        # Tests QR codes
+pypdf==3.17.1       # Tests lecture PDF
+
+# ============================
+# TESTS MULTI-PROJETS/BAILLEURS
+# ============================
+openpyxl==3.1.2      # Tests fichiers Excel
+pandas==2.1.3       # Tests données
+xlsxwriter==3.1.9   # Tests génération Excel
+
+# ============================
+# TESTS MOBILE MONEY
+# ============================
+phonenumbers==8.13.26 # Validation téléphones
+pycountry==22.3.13   # Codes pays
+
+# ============================
+# MONITORING ET DEBUGGING
+# ============================
+structlog==23.2.0    # Logging structuré
+rich==13.7.0         # Pretty printing
+icecream==2.1.3     # Debug helper
+pdb-attach==3.2.0   # Remote debugging
+
+# ============================
+# COMPATIBILITÉ ET UTILS
+# ============================
+python-dotenv==1.0.0
+click==8.1.7
+python-dateutil==2.8.2
+pytz==2023.3
+colorama==0.4.6     # Couleurs terminal
+
+# ============================
+# TESTS ASYNC ET CONCURRENCE
+# ============================
+pytest-asyncio==0.21.1
+aiohttp==3.9.1
+asyncpg==0.29.0
+
+# ============================
+# CONTAINERS ET ORCHESTRATION
+# ============================
+testcontainers==3.7.1  # Tests avec containers
+docker==6.1.3
+
+# ============================
+# VERSION PINNING POUR STABILITÉ
+# ============================
+setuptools>=68.0.0
+wheel>=0.41.0
