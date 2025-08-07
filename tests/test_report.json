@@ -1,10 +1,10 @@
 {
-  "timestamp": "2025-08-07T11:39:24.978010",
-  "duration_seconds": 5.519335,
+  "timestamp": "2025-08-07T12:09:40.293053",
+  "duration_seconds": 5.47227,
   "summary": {
     "total_tests": 33,
-    "passed_tests": 27,
-    "failed_tests": 7,
+    "passed_tests": 30,
+    "failed_tests": 4,
     "skipped_tests": 0,
     "categories": {
       "backend_unit": {
@@ -33,8 +33,8 @@
         "total": 6
       },
       "e2e": {
-        "passed": 8,
-        "failed": 4,
+        "passed": 11,
+        "failed": 1,
         "total": 12
       }
     }
