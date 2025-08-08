@@ -1,0 +1,235 @@
+version: '3.8'
+
+# 🏭 Production Docker Compose pour AWS
+# Optimisé pour ECS, Fargate ou EC2
+
+services:
+  # ==========================================
+  # BACKEND FLASK API
+  # ==========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    image: comptaebnl-backend:production
+    container_name: comptaebnl-backend-prod
+    restart: unless-stopped
+    
+    environment:
+      # Configuration production
+      FLASK_ENV: production
+      PYTHONUNBUFFERED: 1
+      
+      # Base de données (AWS RDS)
+      DATABASE_URL: ${DATABASE_URL}
+      
+      # Cache (AWS ElastiCache)
+      REDIS_URL: ${REDIS_URL}
+      
+      # Secrets (AWS Secrets Manager)
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      
+      # AWS Services
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET}
+      AWS_CLOUDFRONT_DOMAIN: ${AWS_CLOUDFRONT_DOMAIN}
+      
+      # Paiements production
+      STRIPE_PUBLIC_KEY: ${STRIPE_PUBLIC_KEY}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      
+      # Mobile Money production
+      MTN_API_KEY: ${MTN_API_KEY}
+      ORANGE_API_KEY: ${ORANGE_API_KEY}
+      MOOV_API_KEY: ${MOOV_API_KEY}
+      WAVE_API_KEY: ${WAVE_API_KEY}
+      
+      # Monitoring
+      SENTRY_DSN: ${SENTRY_DSN}
+      CLOUDWATCH_LOG_GROUP: ${CLOUDWATCH_LOG_GROUP}
+    
+    ports:
+      - "5000:5000"
+    
+    volumes:
+      # Uploads vers S3 (volume temporaire)
+      - uploads_data:/app/instance/uploads
+      - certificates_data:/app/instance/certificates
+      - logs_data:/app/instance/logs
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+    
+    logging:
+      driver: awslogs
+      options:
+        awslogs-group: /ecs/comptaebnl-backend
+        awslogs-region: us-east-1
+        awslogs-stream-prefix: backend
+    
+    networks:
+      - comptaebnl-network
+
+  # ==========================================
+  # FRONTEND REACT + NGINX
+  # ==========================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL}
+        REACT_APP_STRIPE_PUBLIC_KEY: ${STRIPE_PUBLIC_KEY}
+    image: comptaebnl-frontend:production
+    container_name: comptaebnl-frontend-prod
+    restart: unless-stopped
+    
+    environment:
+      # Configuration Nginx
+      NGINX_HOST: ${NGINX_HOST:-localhost}
+      NGINX_PORT: 80
+    
+    ports:
+      - "80:80"
+    
+    depends_on:
+      backend:
+        condition: service_healthy
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    
+    logging:
+      driver: awslogs
+      options:
+        awslogs-group: /ecs/comptaebnl-frontend
+        awslogs-region: us-east-1
+        awslogs-stream-prefix: frontend
+    
+    networks:
+      - comptaebnl-network
+
+  # ==========================================
+  # REDIS CACHE (Local - pour dev/test)
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: comptaebnl-redis-prod
+    restart: unless-stopped
+    
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    
+    volumes:
+      - redis_data:/data
+    
+    ports:
+      - "6379:6379"
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    
+    logging:
+      driver: awslogs
+      options:
+        awslogs-group: /ecs/comptaebnl-redis
+        awslogs-region: us-east-1
+        awslogs-stream-prefix: redis
+    
+    networks:
+      - comptaebnl-network
+    
+    profiles:
+      - local-cache  # Utilisé seulement si pas d'ElastiCache
+
+# ==========================================
+# VOLUMES PERSISTANTS
+# ==========================================
+volumes:
+  uploads_data:
+    driver: local
+  certificates_data:
+    driver: local
+  logs_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ==========================================
+# RÉSEAU
+# ==========================================
+networks:
+  comptaebnl-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+
+# ==========================================
+# CONFIGURATION DÉPLOIEMENT AWS
+# ==========================================
+# Ce compose peut être utilisé avec:
+# - AWS ECS Fargate
+# - AWS ECS EC2
+# - AWS Lightsail
+# - AWS App Runner
+#
+# Variables d'environnement requises:
+# - DATABASE_URL (AWS RDS PostgreSQL)
+# - REDIS_URL (AWS ElastiCache ou service local)
+# - SECRET_KEY (AWS Secrets Manager)
+# - JWT_SECRET_KEY (AWS Secrets Manager)
+# - STRIPE_SECRET_KEY (AWS Secrets Manager)
+# - AWS_S3_BUCKET (pour uploads)
+# - SENTRY_DSN (monitoring)
+#
+# Commandes de déploiement:
+# docker-compose -f docker-compose.prod.yml up -d
+# docker-compose -f docker-compose.prod.yml --profile local-cache up -d

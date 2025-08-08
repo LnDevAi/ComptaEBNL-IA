@@ -1,0 +1,63 @@
+# ComptaEBNL-IA Backend - Production Dockerfile for AWS
+FROM python:3.11-slim
+
+# Métadonnées
+LABEL maintainer="ComptaEBNL-IA Team"
+LABEL description="Backend Flask pour production AWS"
+LABEL version="1.0.0"
+
+# Variables d'environnement production
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV FLASK_APP=src/app.py
+ENV FLASK_ENV=production
+ENV GUNICORN_WORKERS=4
+ENV GUNICORN_TIMEOUT=120
+
+# Installer dépendances système optimisées
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libpq-dev \
+    libffi-dev \
+    libssl-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Créer utilisateur non-root pour sécurité
+RUN groupadd -r comptaebnl && useradd -r -g comptaebnl comptaebnl
+
+# Définir répertoire de travail
+WORKDIR /app
+
+# Copier et installer dépendances Python
+COPY requirements.txt .
+COPY requirements-flexible.txt .
+
+# Installation des dépendances avec fallback
+RUN pip install --no-cache-dir --upgrade pip && \
+    (pip install --no-cache-dir -r requirements.txt || \
+     pip install --no-cache-dir -r requirements-flexible.txt) && \
+    pip install --no-cache-dir gunicorn gevent
+
+# Copier le code source
+COPY src/ ./src/
+COPY migrations/ ./migrations/
+COPY *.py ./
+
+# Créer dossiers nécessaires
+RUN mkdir -p instance/uploads instance/certificates instance/logs
+
+# Configuration des permissions
+RUN chown -R comptaebnl:comptaebnl /app
+USER comptaebnl
+
+# Exposer le port
+EXPOSE 5000
+
+# Health check optimisé
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+# Commande de production avec Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--worker-class", "gevent", "--timeout", "120", "--keep-alive", "2", "--max-requests", "1000", "--max-requests-jitter", "50", "src.app:app"]
