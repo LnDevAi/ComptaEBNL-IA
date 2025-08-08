@@ -127,7 +127,15 @@ jobs:
         # Installation sécurisée des dépendances
         if [ -f "requirements.txt" ]; then
           echo "📦 Installation des dépendances principales..."
-          pip install -r requirements.txt || echo "⚠️ Certaines dépendances ont échoué"
+          pip install -r requirements.txt || {
+            echo "⚠️ Échec requirements.txt, tentative version flexible..."
+            if [ -f "requirements-flexible.txt" ]; then
+              pip install -r requirements-flexible.txt || echo "⚠️ Dépendances partiellement installées"
+            else
+              echo "⚠️ requirements-flexible.txt non trouvé, installation basique"
+              pip install Flask SQLAlchemy requests || echo "⚠️ Installation basique échouée"
+            fi
+          }
         fi
         
         # Installation des outils de test basiques
