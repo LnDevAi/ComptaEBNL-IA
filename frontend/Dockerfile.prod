@@ -1,0 +1,165 @@
+# ComptaEBNL-IA Frontend - Production Dockerfile for AWS
+FROM node:18-alpine AS builder
+
+# Métadonnées
+LABEL maintainer="ComptaEBNL-IA Team"
+LABEL description="Frontend React pour production AWS"
+LABEL version="1.0.0"
+
+# Variables d'environnement de build
+ENV NODE_ENV=production
+ENV GENERATE_SOURCEMAP=false
+ENV INLINE_RUNTIME_CHUNK=false
+
+# Installer dépendances système
+RUN apk add --no-cache git curl
+
+# Définir répertoire de travail
+WORKDIR /app
+
+# Copier fichiers de dépendances
+COPY package*.json ./
+
+# Installer dépendances avec optimisation
+RUN npm ci --only=production --no-audit --prefer-offline
+
+# Copier le code source
+COPY public/ ./public/
+COPY src/ ./src/
+COPY tsconfig.json ./
+COPY tailwind.config.js ./
+COPY postcss.config.js ./
+
+# Build de production optimisé
+RUN npm run build
+
+# ===================================
+# Stage de production avec Nginx
+# ===================================
+FROM nginx:alpine
+
+# Installer curl pour health checks
+RUN apk add --no-cache curl
+
+# Configuration Nginx optimisée pour AWS
+COPY <<EOF /etc/nginx/nginx.conf
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Optimisations de performance
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    # Compression gzip
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/json
+        application/javascript
+        application/xml+rss
+        application/atom+xml
+        image/svg+xml;
+
+    # Headers de sécurité
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+    add_header Referrer-Policy "strict-origin-when-cross-origin";
+
+    # Configuration du serveur
+    server {
+        listen 80;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Cache des assets statiques
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+
+        # Configuration SPA pour React Router
+        location / {
+            try_files \$uri \$uri/ /index.html;
+            add_header Cache-Control "no-cache";
+        }
+
+        # Proxy vers l'API backend (pour AWS ALB)
+        location /api/ {
+            proxy_pass http://backend:5000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_cache_bypass \$http_upgrade;
+        }
+
+        # Health check
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+
+        # Robots.txt
+        location = /robots.txt {
+            add_header Content-Type text/plain;
+            return 200 "User-agent: *\nDisallow:\n";
+        }
+    }
+}
+EOF
+
+# Copier les artifacts de build
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Créer utilisateur non-root
+RUN addgroup -g 1001 -S comptaebnl && \
+    adduser -S comptaebnl -u 1001
+
+# Ajuster les permissions
+RUN chown -R comptaebnl:comptaebnl /usr/share/nginx/html && \
+    chown -R comptaebnl:comptaebnl /var/cache/nginx && \
+    chown -R comptaebnl:comptaebnl /var/log/nginx && \
+    chown -R comptaebnl:comptaebnl /etc/nginx/conf.d
+RUN touch /var/run/nginx.pid && \
+    chown -R comptaebnl:comptaebnl /var/run/nginx.pid
+
+# Passer à l'utilisateur non-root
+USER comptaebnl
+
+# Exposer le port
+EXPOSE 80
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+# Commande de démarrage
+CMD ["nginx", "-g", "daemon off;"]
